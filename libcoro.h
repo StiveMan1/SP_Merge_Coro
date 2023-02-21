@@ -35,6 +35,9 @@ coro_status(const struct coro *c);
 long long
 coro_switch_count(const struct coro *c);
 
+unsigned long long
+coro_delta_time(const struct coro *c);
+
 /** Check if the coroutine has finished. */
 bool
 coro_is_finished(const struct coro *c);

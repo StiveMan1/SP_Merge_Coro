@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "libcoro.h"
 #include <sys/time.h>
 
@@ -48,6 +49,7 @@ void merge_open(struct merge_st *res, char *file_name) {
 
     merge_resize(res, size);
     for (size_t i = 0; i < size; i++) fscanf(ptr, "%d", &res->data[i]);
+    fclose(ptr);
 }
 
 void merge_save(struct merge_st *res, char *file_name) {
@@ -82,16 +84,13 @@ void merge_sort_combine(size_t st1, size_t st2, size_t fn1, size_t fn2, int *dat
 
 void merge_sort_split(size_t st, size_t fn, int *data, int *temp) {
     if (st + 1 >= fn) return;
-//    int x = 0;
-//    if (temp == NULL) {
-//        x = 1;
-//        temp = malloc(sizeof(int) * (fn - st));
-//    }
+    struct coro *this = coro_this();
     size_t mid = (st + fn) / 2;
     merge_sort_split(st, mid, data, temp);
+    coro_yield();
     merge_sort_split(mid, fn, data, temp);
+    coro_yield();
     merge_sort_combine(st, mid, mid, fn, data, temp);
-//    if(x) free(temp);
 }
 
 void merge_concat(struct merge_st *res, const struct merge_st *obj) {
@@ -115,14 +114,6 @@ char **files;
 int p_l = -1, p_n;
 int coro_n = 0;
 
-#define yield_call(cal)                                                             \
-gettimeofday(&start, NULL);                                                         \
-{cal}                                                                               \
-do{                                                                                 \
-    gettimeofday(&stop, NULL);                                                      \
-}while(p_l > (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec);\
-time += (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;      \
-coro_yield();
 
 
 static int coroutine_merge(void *context) {
@@ -130,50 +121,57 @@ static int coroutine_merge(void *context) {
     struct merge_st *merge_o = merge_new();
     struct coro *this = coro_this();
 
-    struct timeval stop, start;
-    unsigned long long time = 0;
     while (files_done < files_n) {
         int file_id = files_done++;
-        yield_call({
-                       printf("Coro %d file open : %s\n", coro_id, files[file_id]);
-                       merge_open(merge_o, files[file_id]);
-                   })
-        yield_call({
-                       merge_sort(merge_o);
-                       printf("Coro %d sorted : %s\n", coro_id, files[file_id]);
-                   })
-        yield_call({
-                       merge_concat(context, merge_o);
-                       printf("Coro %d concat : %s\n", coro_id, files[file_id]);
-                   })
+        printf("Coro %d file open : %s\n", coro_id, files[file_id]);
+        merge_open(merge_o, files[file_id]);
+        merge_sort(merge_o);
+        merge_concat(context, merge_o);
+        coro_yield();
     }
     merge_free(merge_o);
-    printf("\nCoro %d switches : %llu\nCoro %d time : %llu us\n", coro_id, coro_switch_count(this), coro_id, time);
+    printf("\nCoro %d switches : %llu\nCoro %d time : %llu us\n", coro_id, coro_switch_count(this), coro_id, coro_delta_time(this));
     return 0;
 }
 
 void get_args(int argc, char **argv) {
-    files_n = argc - 1;
-    files = argv + 1;
+    int _n = -1, _l = -1;
+    for (int i = 1; i < argc; i++) {
+        if (memcmp(argv[i], "-n", 2) == 0) _n = i + 1;
+        if (memcmp(argv[i], "-l", 2) == 0) _l = i + 1;
+    }
+    if (_n >= argc) perror("Number of Coro is not defined");
+    if (_n != -1) p_n = strtol(argv[_n], NULL, 10);
+    else p_n = argc - 1 - 2 * (_l != -1);
 
-    printf("Number of coro (<= 0 - auto): ");
-    char data[256];
-    scanf("%s", data);
-    p_n = strtol(data, NULL, 10);
-    if (p_n <= 0) p_n = files_n;
+    if (_l >= argc) perror("Target latency is not defined");
+    if (_l != -1) {
+        p_l = strtol(argv[_l], NULL, 10);
+        if (p_l <= 0) p_l = -1;
+        else p_l = p_l * 1000 / p_n;
+    }
 
-    printf("Target latency (<= 0 - with out): ");
-    scanf("%s", data);
-    p_l = strtol(data, NULL, 10);
-    if (p_l <= 0) p_l = -1;
-    else p_l = p_l * 1000 / p_n;
+    files_n = argc - 1 - 2 * (_l != -1) - 2 * (_n != -1);
+    files = malloc(sizeof(char *) * files_n);
+
+    for (int i = 1, j = 0; i < argc; i++) {
+        if (memcmp(argv[i], "-n", 2) == 0 || memcmp(argv[i], "-l", 2) == 0) {
+            i++;
+            continue;
+        }
+        files[j++] = argv[i];
+    }
+    printf("_n : %d\n", p_n);
+    printf("_l : %d\n", p_l);
+    printf("files : ");
+    for(int i=0;i<files_n;i++) printf("%s ", files[i]); printf("\n");
 }
 
 int main(int argc, char **argv) {
     get_args(argc, argv);
 
-    struct timeval stop, start;
-    gettimeofday(&start, NULL);
+    struct timespec start, stop;
+    clock_gettime (CLOCK_REALTIME, &start);
 
     struct merge_st *result_merge = merge_new();
     coro_sched_init();
@@ -185,8 +183,9 @@ int main(int argc, char **argv) {
         coro_delete(c);
     }
     merge_save(result_merge, "result.txt");
-    gettimeofday(&stop, NULL);
-    printf("\nTotal time : %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec);
+    merge_free(result_merge);
+    free(files);
+    clock_gettime (CLOCK_REALTIME, &stop);
+    printf("\nTotal time : %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000);
     return 0;
 }
-

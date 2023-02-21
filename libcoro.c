@@ -27,6 +27,9 @@ struct coro {
 	long long switch_count;
 	/** Links in the coroutine list, used by scheduler. */
 	struct coro *next, *prev;
+
+    struct timespec start_t;
+    unsigned long long delta_time;
 };
 
 /**
@@ -83,7 +86,13 @@ coro_status(const struct coro *c)
 long long
 coro_switch_count(const struct coro *c)
 {
-	return c->switch_count;
+    return c->switch_count;
+}
+
+unsigned long long
+coro_delta_time(const struct coro *c)
+{
+    return c->delta_time;
 }
 
 bool
@@ -105,6 +114,7 @@ coro_yield_to(struct coro *to)
 {
 	struct coro *from = coro_this_ptr;
 	++from->switch_count;
+    clock_gettime (CLOCK_REALTIME, &from->start_t);
 	if (sigsetjmp(from->ctx, 0) == 0)
 		siglongjmp(to->ctx, 1);
 	coro_this_ptr = from;
@@ -113,8 +123,14 @@ coro_yield_to(struct coro *to)
 void
 coro_yield(void)
 {
+    struct timespec end_t;
+    clock_gettime (CLOCK_REALTIME, &end_t);
 	struct coro *from = coro_this_ptr;
 	struct coro *to = from->next;
+
+    from->delta_time += (end_t.tv_sec - from->start_t.tv_sec) * 1000000;
+    from->delta_time += (end_t.tv_nsec - from->start_t.tv_nsec) / 1000;
+
 	if (to == NULL)
 		coro_yield_to(&coro_sched);
 	else
@@ -166,6 +182,7 @@ coro_body(int signum)
 	 * On an invokation jump back to the constructor right
 	 * after remembering the context.
 	 */
+    clock_gettime (CLOCK_REALTIME, &c->start_t);
 	if (sigsetjmp(c->ctx, 0) == 0)
 		siglongjmp(start_point, 1);
 	/*
@@ -195,7 +212,8 @@ coro_new(coro_f func, void *func_arg)
 	c->func = func;
 	c->func_arg = func_arg;
 	c->is_finished = false;
-	c->switch_count = 0;
+    c->switch_count = 0;
+    c->delta_time = 0;
 	/*
 	 * SIGUSR2 is used. First of all, block new signals to be
 	 * able to set a new handler.
