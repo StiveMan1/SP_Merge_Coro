@@ -118,8 +118,8 @@ int coro_n = 0;
 static int coroutine_merge(void *context) {
     int coro_id = ++coro_n;
     struct merge_st *merge_o = merge_new();
-    struct coro *this = coro_this();
 
+    printf("Coro %d started\n", coro_id);
     while (files_done < files_n) {
         int file_id = files_done++;
         printf("Coro %d file open : %s\n", coro_id, files[file_id]);
@@ -129,7 +129,7 @@ static int coroutine_merge(void *context) {
         coro_yield();
     }
     merge_free(merge_o);
-    printf("\nCoro %d switches : %llu\nCoro %d time : %llu us\n", coro_id, coro_switch_count(this), coro_id, coro_delta_time(this));
+    printf("Coro %d finished : \n", coro_id);
     return 0;
 }
 
@@ -184,6 +184,8 @@ int main(int argc, char **argv) {
     struct coro *c;
     while ((c = coro_sched_wait()) != NULL) {
         coro_delete(c);
+        printf("\tswitches : %llu\n", coro_switch_count(c));
+        printf("\ttime : %llu us\n", coro_delta_time(c));
     }
 
     merge_save(result_merge, "result.txt");

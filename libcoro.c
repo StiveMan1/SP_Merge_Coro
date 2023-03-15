@@ -120,6 +120,17 @@ static void
 coro_yield_to(struct coro *to)
 {
 	struct coro *from = coro_this_ptr;
+	++from->switch_count;
+	if (sigsetjmp(from->ctx, 0) == 0)
+		siglongjmp(to->ctx, 1);
+	coro_this_ptr = from;
+}
+
+void
+coro_yield(void)
+{
+	struct coro *from = coro_this_ptr;
+	struct coro *to = from->next;
 
     /*
      * Here we check that timer for current coroutine work more than one time_quant
@@ -131,26 +142,13 @@ coro_yield_to(struct coro *to)
     if (time_to_us(now_t) - time_to_us(from->start_t) < time_quant) return;
     else from->delta_time += time_to_us(now_t) - time_to_us(from->start_t);
 
-	++from->switch_count;
-	if (sigsetjmp(from->ctx, 0) == 0)
-		siglongjmp(to->ctx, 1);
-	coro_this_ptr = from;
-
-
-    // Update start time of working period
-    clock_gettime (CLOCK_MONOTONIC, &from->start_t);
-}
-
-void
-coro_yield(void)
-{
-	struct coro *from = coro_this_ptr;
-	struct coro *to = from->next;
-
 	if (to == NULL)
 		coro_yield_to(&coro_sched);
 	else
 		coro_yield_to(to);
+
+    // Update start time of working period
+    clock_gettime (CLOCK_MONOTONIC, &from->start_t);
 }
 
 void
