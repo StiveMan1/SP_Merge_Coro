@@ -37,6 +37,7 @@ struct coro {
  * ones to a user.
  */
 static struct coro coro_sched;
+long long target_latency;
 /**
  * True, if in that moment the scheduler is waiting for a
  * coroutine finish.
@@ -114,7 +115,6 @@ coro_yield_to(struct coro *to)
 {
 	struct coro *from = coro_this_ptr;
 	++from->switch_count;
-    clock_gettime (CLOCK_REALTIME, &from->start_t);
 	if (sigsetjmp(from->ctx, 0) == 0)
 		siglongjmp(to->ctx, 1);
 	coro_this_ptr = from;
@@ -124,9 +124,12 @@ void
 coro_yield(void)
 {
     struct timespec end_t;
-    clock_gettime (CLOCK_REALTIME, &end_t);
 	struct coro *from = coro_this_ptr;
 	struct coro *to = from->next;
+
+    do{
+        clock_gettime (CLOCK_MONOTONIC, &end_t);
+    }while(target_latency > (end_t.tv_sec - from->start_t.tv_sec) * 1000000 + (end_t.tv_nsec - from->start_t.tv_nsec) / 1000);
 
     from->delta_time += (end_t.tv_sec - from->start_t.tv_sec) * 1000000;
     from->delta_time += (end_t.tv_nsec - from->start_t.tv_nsec) / 1000;
@@ -135,6 +138,7 @@ coro_yield(void)
 		coro_yield_to(&coro_sched);
 	else
 		coro_yield_to(to);
+    clock_gettime (CLOCK_MONOTONIC, &from->start_t);
 }
 
 void
@@ -164,6 +168,7 @@ coro_sched_wait(void)
 struct coro *
 coro_this(void)
 {
+    clock_gettime (CLOCK_MONOTONIC, &coro_this_ptr->start_t);
 	return coro_this_ptr;
 }
 

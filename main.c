@@ -84,7 +84,6 @@ void merge_sort_combine(size_t st1, size_t st2, size_t fn1, size_t fn2, int *dat
 
 void merge_sort_split(size_t st, size_t fn, int *data, int *temp) {
     if (st + 1 >= fn) return;
-    struct coro *this = coro_this();
     size_t mid = (st + fn) / 2;
     merge_sort_split(st, mid, data, temp);
     coro_yield();
@@ -161,8 +160,9 @@ void get_args(int argc, char **argv) {
         }
         files[j++] = argv[i];
     }
-    printf("_n : %d\n", p_n);
-    printf("_l : %d\n", p_l);
+    printf("-n : %d\n", p_n);
+    printf("-l : %d\n", p_l);
+    target_latency = p_l;
     printf("files : ");
     for(int i=0;i<files_n;i++) printf("%s ", files[i]); printf("\n");
 }
@@ -171,7 +171,7 @@ int main(int argc, char **argv) {
     get_args(argc, argv);
 
     struct timespec start, stop;
-    clock_gettime (CLOCK_REALTIME, &start);
+    clock_gettime (CLOCK_MONOTONIC, &start);
 
     struct merge_st *result_merge = merge_new();
     coro_sched_init();
@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
     merge_save(result_merge, "result.txt");
     merge_free(result_merge);
     free(files);
-    clock_gettime (CLOCK_REALTIME, &stop);
+    clock_gettime (CLOCK_MONOTONIC, &stop);
     printf("\nTotal time : %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000);
     return 0;
 }
