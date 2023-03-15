@@ -37,7 +37,7 @@ struct coro {
  * ones to a user.
  */
 static struct coro coro_sched;
-long long target_latency;
+unsigned long long time_quant;
 /**
  * True, if in that moment the scheduler is waiting for a
  * coroutine finish.
@@ -109,36 +109,48 @@ coro_delete(struct coro *c)
 	free(c);
 }
 
+unsigned long long
+time_to_us(struct timespec time)
+{
+    return time.tv_sec * 1000000 + time.tv_nsec / 1000;
+}
+
 /** Switch the current coroutine to an arbitrary one. */
 static void
 coro_yield_to(struct coro *to)
 {
 	struct coro *from = coro_this_ptr;
+
+    /*
+     * Here we check that timer for current coroutine work more than one time_quant
+     * and adding this time period to the delta time of current coroutine.
+     * delta time - is the period of time witch this coroutine worked.
+     */
+    struct timespec now_t;
+    clock_gettime (CLOCK_MONOTONIC, &now_t);
+    if (time_to_us(now_t) - time_to_us(from->start_t) < time_quant) return;
+    else from->delta_time += time_to_us(now_t) - time_to_us(from->start_t);
+
 	++from->switch_count;
 	if (sigsetjmp(from->ctx, 0) == 0)
 		siglongjmp(to->ctx, 1);
 	coro_this_ptr = from;
+
+
+    // Update start time of working period
+    clock_gettime (CLOCK_MONOTONIC, &from->start_t);
 }
 
 void
 coro_yield(void)
 {
-    struct timespec end_t;
 	struct coro *from = coro_this_ptr;
 	struct coro *to = from->next;
-
-    do{
-        clock_gettime (CLOCK_MONOTONIC, &end_t);
-    }while(target_latency > (end_t.tv_sec - from->start_t.tv_sec) * 1000000 + (end_t.tv_nsec - from->start_t.tv_nsec) / 1000);
-
-    from->delta_time += (end_t.tv_sec - from->start_t.tv_sec) * 1000000;
-    from->delta_time += (end_t.tv_nsec - from->start_t.tv_nsec) / 1000;
 
 	if (to == NULL)
 		coro_yield_to(&coro_sched);
 	else
 		coro_yield_to(to);
-    clock_gettime (CLOCK_MONOTONIC, &from->start_t);
 }
 
 void
@@ -168,7 +180,6 @@ coro_sched_wait(void)
 struct coro *
 coro_this(void)
 {
-    clock_gettime (CLOCK_MONOTONIC, &coro_this_ptr->start_t);
 	return coro_this_ptr;
 }
 
@@ -187,15 +198,23 @@ coro_body(int signum)
 	 * On an invokation jump back to the constructor right
 	 * after remembering the context.
 	 */
-    clock_gettime (CLOCK_REALTIME, &c->start_t);
 	if (sigsetjmp(c->ctx, 0) == 0)
 		siglongjmp(start_point, 1);
-	/*
-	 * If the execution is here, then the coroutine should
-	 * finaly start work.
-	 */
+
+    // Timer start
+    clock_gettime (CLOCK_MONOTONIC, &c->start_t);
+    /*
+     * If the execution is here, then the coroutine should
+     * finaly start work.
+     */
 	coro_this_ptr = c;
 	c->ret = c->func(c->func_arg);
+
+    // End timer for current coroutine.
+    struct timespec now_t;
+    clock_gettime (CLOCK_MONOTONIC, &now_t);
+    c->delta_time += time_to_us(now_t) - time_to_us(c->start_t);
+
 	c->is_finished = true;
 	/* Can not return - 'ret' address is invalid already! */
 	if (! is_sched_waiting) {

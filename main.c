@@ -110,7 +110,7 @@ void merge_sort(struct merge_st *res) {
 
 int files_n, files_done = 0;
 char **files;
-int p_l = -1, p_n;
+int p_l, p_n;
 int coro_n = 0;
 
 
@@ -146,8 +146,11 @@ void get_args(int argc, char **argv) {
     if (_l >= argc) perror("Target latency is not defined");
     if (_l != -1) {
         p_l = strtol(argv[_l], NULL, 10);
-        if (p_l <= 0) p_l = -1;
+        if (p_l <= 0) p_l = 0;
         else p_l = p_l * 1000 / p_n;
+        time_quant = p_l;
+    } else {
+        time_quant = 0;
     }
 
     files_n = argc - 1 - 2 * (_l != -1) - 2 * (_n != -1);
@@ -162,7 +165,6 @@ void get_args(int argc, char **argv) {
     }
     printf("-n : %d\n", p_n);
     printf("-l : %d\n", p_l);
-    target_latency = p_l;
     printf("files : ");
     for(int i=0;i<files_n;i++) printf("%s ", files[i]); printf("\n");
 }
@@ -170,22 +172,24 @@ void get_args(int argc, char **argv) {
 int main(int argc, char **argv) {
     get_args(argc, argv);
 
-    struct timespec start, stop;
-    clock_gettime (CLOCK_MONOTONIC, &start);
-
     struct merge_st *result_merge = merge_new();
     coro_sched_init();
     for (int i = 0; i < p_n; ++i) {
         coro_new(coroutine_merge, result_merge);
     }
+
+    struct timespec start, stop;
+    clock_gettime (CLOCK_MONOTONIC, &start);
+
     struct coro *c;
     while ((c = coro_sched_wait()) != NULL) {
         coro_delete(c);
     }
+
     merge_save(result_merge, "result.txt");
     merge_free(result_merge);
     free(files);
     clock_gettime (CLOCK_MONOTONIC, &stop);
-    printf("\nTotal time : %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000);
+    printf("\nTotal time : %llu us\n", time_to_us(stop) - time_to_us(start));
     return 0;
 }

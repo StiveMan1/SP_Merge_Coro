@@ -5,7 +5,7 @@
 
 struct coro;
 typedef int (*coro_f)(void *);
-extern long long target_latency;
+extern unsigned long long time_quant;
 
 /** Make current context scheduler. */
 void
@@ -51,13 +51,9 @@ coro_delete(struct coro *c);
 void
 coro_yield(void);
 
-/** Start timer of current coroutine. */
-void
-coro_timer_start(struct coro *c);
-
-/** End timer of current coroutine. */
-void
-coro_timer_start(struct coro *c);
+/** time stype converter */
+unsigned long long
+time_to_us(struct timespec time);
 
 #endif /* LIBCORO_INCLUDED */
 
