@@ -147,7 +147,7 @@ void get_args(int argc, char **argv) {
     if (_l != -1) {
         p_l = strtol(argv[_l], NULL, 10);
         if (p_l <= 0) p_l = 0;
-        else p_l = p_l * 1000 / p_n;
+        else p_l = p_l / p_n;
         time_quant = p_l;
     } else {
         time_quant = 0;
